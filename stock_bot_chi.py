@@ -104,6 +104,7 @@ def safe_dt_str(dt_str):
 _GENERIC_BAD_TOKENS = {
     "港股報價", "香港即時股票股價", "經濟通", "etnet", "AASTOCKS", "阿思達克", "阿思達克財經網",
     "Detail Quote", "Interactive Chart", "Real-time Quote", "詳細報價", "互動圖表", "即時報價",
+    "香港新聞財經資訊和生活平台"
 }
 
 def _contains_chinese(text: str) -> bool:
@@ -387,6 +388,23 @@ def get_company_name(symbol: str, is_hk_stock: bool = False) -> str:
 
 # ================================
 # Indicators
+
+@st.cache_data(ttl=300)
+def fetch_financial_info(symbol: str, is_hk_stock: bool = False):
+    ticker_symbol = f"{symbol}.HK" if is_hk_stock else symbol
+    try:
+        ticker = yf.Ticker(ticker_symbol)
+        info = ticker.info
+        return {
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "pb_ratio": info.get("priceToBook"),
+            "analyst_rating": info.get("recommendationMean")
+        }
+    except Exception as e:
+        st.error(f"Error fetching financial info: {e}")
+        return {}
+
 # ================================
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
     close_series = df["4. close"]
@@ -689,39 +707,98 @@ if symbol:
     latest_atr = float(atr14.iloc[-1]) if not np.isnan(atr14.iloc[-1]) else None
 
     # Last-bar MACD signal
-    latest_macd_signal = "none"
+    latest_macd_signal = "None"
     if len(macd) >= 2 and len(signal) >= 2:
         if macd.iloc[-2] < signal.iloc[-2] and macd.iloc[-1] > signal.iloc[-1]:
-            latest_macd_signal = "buy"
+            latest_macd_signal = "Buy"
         elif macd.iloc[-2] > signal.iloc[-2] and macd.iloc[-1] < signal.iloc[-1]:
-            latest_macd_signal = "sell"
+            latest_macd_signal = "Sell"
 
     # --- News (Traditional Chinese, NO sentiment) ---
     articles = fetch_traditional_chinese_news(symbol, is_hk_stock)
 
-    # Recommendation banner (RSI + MACD only)
+    # Recommendation banner    
+    financials = fetch_financial_info(symbol, is_hk_stock)
+    extra_score = 0
+    rating = financials.get("analyst_rating")
+    pe = financials.get("pe_ratio")
+    if rating is not None:
+        if rating <= 2:
+            extra_score += 1
+        elif rating >= 4:
+            extra_score -= 1
+    if pe is not None:
+        if pe < 15:
+            extra_score += 1
+        elif pe > 30:
+            extra_score -= 1
+
     recommendation, rsi_text, macd_text, banner_type = combined_recommendation(
         latest_rsi, latest_macd_signal
     )
+    
+    score_map = {
+        "✅ Strong Buy Recommendation": 2,
+        "☑️ Moderate Buy Recommendation": 1,
+        "ℹ️ Hold Recommendation": 0,
+        "⚠️ Sell Recommendation": -1
+    }
+    final_score = score_map.get(recommendation, 0) + extra_score
+    if final_score >= 2:
+        recommendation = "✅ Strong Buy Recommendation"
+        banner_type = "success"
+    elif final_score == 1:
+        recommendation = "☑️ Moderate Buy Recommendation"
+        banner_type = "info"
+    elif final_score == 0:
+        recommendation = "ℹ️ Hold Recommendation"
+        banner_type = "warning"
+    else:
+        recommendation = "⚠️ Sell Recommendation"
+        banner_type = "error"
+
     getattr(st, banner_type)(recommendation)
 
-    # KPI row (removed Avg Sentiment)
-    kpi1, kpi2 = st.columns(2)
+    # KPI row
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
     with kpi1:
         st.metric("Last Close", f"${latest_close:,.2f}" if not is_hk_stock else f"HK${latest_close:,.2f}")
+
     with kpi2:
         st.metric("RSI (14)", f"{latest_rsi:.2f}")
+
+    with kpi3:
+        pe_val = financials.get("pe_ratio")
+        st.metric("Trailing P/E", f"{pe_val:.2f}" if pe_val is not None else "N/A")
+
+    with kpi4:
+        rating_val = financials.get("analyst_rating")
+        st.metric("Analyst Rating", f"{rating_val:.2f}" if rating_val is not None else "N/A")
 
     # Two-column layout: Indicators & News
     col_ind, col_news = st.columns([1, 1], gap="large")
 
     with col_ind:
         st.subheader("🎯 Indicators")
+
         # Indicators text
-        st.markdown(
-            f"- {rsi_text} **(RSI: {latest_rsi:.2f})**\n"
-            f"- {macd_text}"
-        )
+        st.markdown(f"""
+        <ul>
+        <li><span title="Relative Strength Index: Measures momentum. Below 30 is oversold, above 70 is overbought.">
+        📉 RSI (14): {latest_rsi:.3f}</span></li>
+        <li><span title="MACD: Moving Average Convergence Divergence. Indicates trend changes.">
+        📊 MACD Signal: {latest_macd_signal}</span></li>
+        <li><span title="Trailing P/E: Price divided by earnings over the last 12 months. Lower is cheaper.">
+        📈 Trailing P/E Ratio: {financials.get('pe_ratio', 'N/A'):.3f}</span></li>
+        <li><span title="Forward P/E: Price divided by projected earnings. Useful for growth expectations.">
+        📈 Forward P/E Ratio: {financials.get('forward_pe', 'N/A'):.3f}</span></li>
+        <li><span title="Price-to-Book: Compares market value to book value. Below 1 may indicate undervaluation.">
+        📘 Price-to-Book Ratio: {financials.get('pb_ratio', 'N/A'):.3f}</span></li>
+        <li><span title="Analyst Rating: Average recommendation. 1 = Strong Buy, 5 = Sell.">
+        🧠 Analyst Rating: {financials.get('analyst_rating', 'N/A'):.3f}</span></li>
+        </ul>
+        """, unsafe_allow_html=True)
 
         # Snapshot
         if not pd.isna(sma20_full.iloc[-1]) and not pd.isna(sma50_full.iloc[-1]):
@@ -736,11 +813,12 @@ if symbol:
 
         if latest_stoch_k is not None and latest_stoch_d is not None:
             stoch_text = (
-                f"%K: {latest_stoch_k:.1f}, %D: {latest_stoch_d:.1f} — "
-                + ("Overbought (>80)" if latest_stoch_k > 80 else "Oversold (<20)" if latest_stoch_k < 20 else "Neutral")
+                f"%K: {latest_stoch_k:.1f}, %D: {latest_stoch_d:.1f} — " +
+                ("Overbought (>80)" if latest_stoch_k > 80 else "Oversold (<20)" if latest_stoch_k < 20 else "Neutral")
             )
         else:
             stoch_text = "N/A"
+
         atr_text = f"{latest_atr:.2f}" if latest_atr is not None else "N/A"
 
         st.markdown(
