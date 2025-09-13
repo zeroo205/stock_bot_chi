@@ -62,8 +62,51 @@ st.markdown("""
     margin-left: -1em;
     position: absolute;
     left: 0;
+},
+            
+/* Completely remove all expander styling */
+div[data-testid="stExpander"] {
+    border: none !important;
+    background: transparent !important;
+    margin: 0.25rem 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
 }
-
+div[data-testid="stExpander"] > details {
+    border: none !important;
+    background: transparent !important;
+}
+div[data-testid="stExpander"] > details > summary {
+    padding: 0 !important;
+    margin: 0 !important;
+    font-weight: normal !important;
+    cursor: pointer;
+    display: inline !important;
+    list-style: none !important;
+}
+div[data-testid="stExpander"] > details > summary:hover {
+    background: transparent !important;
+}
+div[data-testid="stExpander"] > details > summary::-webkit-details-marker {
+    display: none !important;
+}
+div[data-testid="stExpander"] > details > div {
+    padding: 0.5rem 0 0 1rem !important;
+    margin: 0 !important;
+    border: none !important;
+    font-size: 0.9rem !important;
+    color: #666 !important;
+    background: transparent !important;
+}
+/* Hide the expander chevron icon completely */
+div[data-testid="stExpander"] > details > summary > div {
+    display: none !important;
+}
+/* Make sure the text looks normal */
+div[data-testid="stExpander"] > details > summary p {
+    margin: 0 !important;
+    display: inline !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -759,7 +802,7 @@ if symbol:
 
     getattr(st, banner_type)(recommendation)
 
-    # KPI row
+        # KPI row
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
     with kpi1:
@@ -782,50 +825,81 @@ if symbol:
     with col_ind:
         st.subheader("🎯 Indicators")
 
-        # Indicators text
-        st.markdown(f"""
-        <ul>
-        <li><span title="Relative Strength Index: Measures momentum. Below 30 is oversold, above 70 is overbought.">
-        📉 RSI (14): {latest_rsi:.3f}</span></li>
-        <li><span title="MACD: Moving Average Convergence Divergence. Indicates trend changes.">
-        📊 MACD Signal: {latest_macd_signal}</span></li>
-        <li><span title="Trailing P/E: Price divided by earnings over the last 12 months. Lower is cheaper.">
-        📈 Trailing P/E Ratio: {financials.get('pe_ratio', 'N/A'):.3f}</span></li>
-        <li><span title="Forward P/E: Price divided by projected earnings. Useful for growth expectations.">
-        📈 Forward P/E Ratio: {financials.get('forward_pe', 'N/A'):.3f}</span></li>
-        <li><span title="Price-to-Book: Compares market value to book value. Below 1 may indicate undervaluation.">
-        📘 Price-to-Book Ratio: {financials.get('pb_ratio', 'N/A'):.3f}</span></li>
-        <li><span title="Analyst Rating: Average recommendation. 1 = Strong Buy, 5 = Sell.">
-        🧠 Analyst Rating: {financials.get('analyst_rating', 'N/A'):.3f}</span></li>
-        </ul>
-        """, unsafe_allow_html=True)
+        # Define the variables first
+        pe_val = financials.get('pe_ratio', 'N/A')
+        pe_text = f"{pe_val:.3f}" if isinstance(pe_val, (int, float)) else pe_val
+        
+        forward_pe_val = financials.get('forward_pe', 'N/A')
+        forward_pe_text = f"{forward_pe_val:.3f}" if isinstance(forward_pe_val, (int, float)) else forward_pe_val
+        
+        pb_val = financials.get('pb_ratio', 'N/A')
+        pb_text = f"{pb_val:.3f}" if isinstance(pb_val, (int, float)) else pb_val
+        
+        rating_val = financials.get('analyst_rating', 'N/A')
+        rating_text = f"{rating_val:.3f}" if isinstance(rating_val, (int, float)) else rating_val
 
-        # Snapshot
+        # Each indicator as an expander with the full line clickable
+        with st.expander(f"📉 RSI (14): {latest_rsi:.3f}", expanded=False):
+            st.caption("Relative Strength Index: Measures momentum. Below 30 is oversold, above 70 is overbought.")
+        
+        with st.expander(f"🔍 MACD Signal: {latest_macd_signal}", expanded=False):
+            st.caption("MACD: Moving Average Convergence Divergence. Indicates trend changes.")
+        
+        with st.expander(f"💰 Trailing P/E Ratio: {pe_text}", expanded=False):
+            st.caption("Price divided by earnings over the last 12 months. Lower is cheaper.")
+        
+        with st.expander(f"🔜 Forward P/E Ratio: {forward_pe_text}", expanded=False):
+            st.caption("Price divided by projected earnings. Useful for growth expectations.")
+        
+        with st.expander(f"📘 Price-to-Book Ratio: {pb_text}", expanded=False):
+            st.caption("Compares market value to book value. Below 1 may indicate undervaluation.")
+        
+        with st.expander(f"🧠 Analyst Rating: {rating_text}", expanded=False):
+            st.caption("Average recommendation. 1 = Strong Buy, 5 = Sell.")
+
+        # Snapshot indicators with expanders and icons
         if not pd.isna(sma20_full.iloc[-1]) and not pd.isna(sma50_full.iloc[-1]):
             if sma20_full.iloc[-1] > sma50_full.iloc[-1]:
                 sma_bias = "Bullish (SMA20 > SMA50)"
+                sma_icon = "🐮"  # Bullish icon
             elif sma20_full.iloc[-1] < sma50_full.iloc[-1]:
                 sma_bias = "Bearish (SMA20 < SMA50)"
+                sma_icon = "🐻"  # Bearish icon
             else:
                 sma_bias = "Neutral"
+                sma_icon = "➖"  # Neutral icon
         else:
             sma_bias = "Neutral"
+            sma_icon = "➖"  # Neutral icon
 
         if latest_stoch_k is not None and latest_stoch_d is not None:
             stoch_text = (
                 f"%K: {latest_stoch_k:.1f}, %D: {latest_stoch_d:.1f} — " +
                 ("Overbought (>80)" if latest_stoch_k > 80 else "Oversold (<20)" if latest_stoch_k < 20 else "Neutral")
             )
+            # Choose icon based on stochastic value
+            if latest_stoch_k > 80:
+                stoch_icon = "⚠️"  # Overbought warning
+            elif latest_stoch_k < 20:
+                stoch_icon = "🔄"  # Oversold, potential reversal
+            else:
+                stoch_icon = "➖"  # Neutral
         else:
             stoch_text = "N/A"
+            stoch_icon = "❓"  # Unknown
 
         atr_text = f"{latest_atr:.2f}" if latest_atr is not None else "N/A"
+        atr_icon = "🌊"  # Volatility icon
 
-        st.markdown(
-            f"- **SMA Bias:** {sma_bias}\n"
-            f"- **Stochastic (14,3):** {stoch_text}\n"
-            f"- **ATR (14):** {atr_text}"
-        )
+        # Use expanders for snapshot indicators with icons
+        with st.expander(f"{sma_icon} **SMA Bias:** {sma_bias}", expanded=False):
+            st.caption("Simple Moving Average bias: Compares 20-day and 50-day moving averages. Bullish when SMA20 > SMA50, Bearish when SMA20 < SMA50.")
+        
+        with st.expander(f"{stoch_icon} **Stochastic (14,3):** {stoch_text}", expanded=False):
+            st.caption("Stochastic Oscillator: Measures momentum by comparing closing price to price range. Overbought >80, Oversold <20.")
+        
+        with st.expander(f"{atr_icon} **ATR (14):** {atr_text}", expanded=False):
+            st.caption("Average True Range: Measures market volatility. Higher values indicate greater price volatility.")
     
     with col_news:
         st.subheader("📰 Recent News")
@@ -834,13 +908,18 @@ if symbol:
                 title = a.get("title", "No title") or "No title"
                 raw_url = a.get("url")
                 url = normalize_url(raw_url)
+                published_at = a.get("published_at", "")
+                formatted_date = safe_dt_str(published_at) if published_at else "No date"
 
-                # Headline clickable
+                # Headline clickable with date
                 headline_html = f'<a href="{html.escape(url)}" target="_blank">{html.escape(title)}</a>'
+                date_html = f'<span class="news-bracket">[{html.escape(formatted_date)}]</span>'
 
                 st.markdown(
                     f"""
-                    {headline_html}
+                    <div class="news-item">
+                        {headline_html} {date_html}
+                    </div>
                     """,
                     unsafe_allow_html=True
                 )
